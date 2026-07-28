@@ -28,6 +28,7 @@ interface ModuleRendererProps {
 
 export function ModuleRenderer({ id }: ModuleRendererProps) {
   const Component = MODULE_COMPONENTS[id]
+  if (!Component) return null
   return <Component />
 }
 

@@ -88,6 +88,21 @@ function normalizeDay(day: DayData): DayData {
   return { ...day, dietPlan: cloneDietPlan() }
 }
 
+function mergeMissingModules(modules: ModuleConfig[] = []): ModuleConfig[] {
+  const existing = new Set(modules.map((m) => m.id))
+  const missing = DEFAULT_MODULES.filter((m) => !existing.has(m.id))
+  if (missing.length === 0) return modules
+
+  let nextOrder = modules.reduce((max, m) => Math.max(max, m.order), -1)
+  return [
+    ...modules,
+    ...missing.map((m) => {
+      nextOrder += 1
+      return { ...m, order: nextOrder, enabled: true }
+    }),
+  ]
+}
+
 function getDay(state: LifeMaxState, date: string): DayData {
   return normalizeDay(state.days[date] ?? createDefaultDayData(state.customSupplements))
 }
@@ -117,8 +132,16 @@ export const useLifeMaxStore = create<LifeMaxState>()(
       ensureToday: () => {
         const key = getTodayKey()
         const state = get()
+        const modules = mergeMissingModules(state.modules)
+        const modulesChanged = modules.length !== state.modules.length
+
         if (!state.days[key]) {
-          set(setDay(state, key, createDefaultDayData(state.customSupplements)))
+          set({
+            ...(modulesChanged ? { modules } : {}),
+            ...setDay(state, key, createDefaultDayData(state.customSupplements)),
+          })
+        } else if (modulesChanged) {
+          set({ modules })
         }
         get().recalculateStreak()
       },
@@ -584,26 +607,20 @@ export const useLifeMaxStore = create<LifeMaxState>()(
     }),
     {
       name: 'lifemax-storage',
-      version: 2,
+      version: 3,
       migrate: (persisted, version) => {
         const state = persisted as {
           modules?: ModuleConfig[]
           days?: Record<string, DayData>
         }
 
-        if (version < 2) {
-          const modules = state.modules ?? []
-          if (!modules.some((m) => m.id === 'diet')) {
-            const maxOrder = modules.reduce((max, m) => Math.max(max, m.order), -1)
-            state.modules = [...modules, { id: 'diet', enabled: true, order: maxOrder + 1 }]
-          }
+        state.modules = mergeMissingModules(state.modules ?? [])
 
-          if (state.days) {
-            for (const key of Object.keys(state.days)) {
-              const day = state.days[key]
-              if (day && !day.dietPlan) {
-                state.days[key] = { ...day, dietPlan: cloneDietPlan() }
-              }
+        if (version < 3 && state.days) {
+          for (const key of Object.keys(state.days)) {
+            const day = state.days[key]
+            if (day && !day.dietPlan) {
+              state.days[key] = { ...day, dietPlan: cloneDietPlan() }
             }
           }
         }
